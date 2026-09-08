@@ -90,6 +90,25 @@ function downloadBlob(content, filename, type) {
   URL.revokeObjectURL(url);
 }
 
+const RANGE_OPTIONS = [
+  { value: "24h", label: "24 Jam Terakhir" },
+  { value: "3d", label: "3 Hari Terakhir" },
+  { value: "7d", label: "7 Hari Terakhir" },
+  { value: "30d", label: "30 Hari Terakhir" },
+  { value: "all", label: "Semua Data" },
+  { value: "custom", label: "Rentang Kustom..." },
+];
+
+function buildRangeQuery(range, customFrom, customTo) {
+  const qs = new URLSearchParams();
+  qs.set("range", range);
+  if (range === "custom") {
+    if (customFrom) qs.set("from", customFrom);
+    if (customTo) qs.set("to", customTo);
+  }
+  return qs.toString();
+}
+
 export default function ConcessionDetailPage() {
   const { id } = useParams();
   const [concession, setConcession] = useState(null);
@@ -101,16 +120,33 @@ export default function ConcessionDetailPage() {
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
   const perPage = 8;
+  // Rentang waktu tampilan hotspot. Default 24 jam terakhir sesuai jadwal
+  // fetch otomatis; user bisa ganti ke preset lain atau rentang kustom.
+  const [range, setRange] = useState("24h");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  // Loading kecil khusus saat data di-refresh karena ganti rentang waktu,
+  // supaya seluruh halaman tidak "flash" ke layar loading penuh seperti
+  // saat pertama kali membuka halaman ini.
+  const [switching, setSwitching] = useState(false);
 
   async function load() {
-    const res = await fetch(`/api/concessions/${id}`);
+    setSwitching(true);
+    const qs = buildRangeQuery(range, customFrom, customTo);
+    const res = await fetch(`/api/concessions/${id}?${qs}`);
     const data = await res.json();
     setConcession(data.concession);
     setHotspots(data.hotspots || []);
     setLoading(false);
+    setSwitching(false);
   }
 
-  useEffect(() => { load(); }, [id]); // eslint-disable-line
+  useEffect(() => {
+    // Untuk rentang kustom, tunggu sampai kedua tanggal diisi supaya tidak
+    // fetch berulang kali saat user baru pilih salah satu tanggal.
+    if (range === "custom" && (!customFrom || !customTo)) return;
+    load();
+  }, [id, range, customFrom, customTo]); // eslint-disable-line
 
   async function handleFetchLatest() {
     setFetching(true);
@@ -155,11 +191,36 @@ export default function ConcessionDetailPage() {
       </div>
       <p className="text-xs text-slate-400 mb-4">Data diambil otomatis tiap 24 jam dari FIRMS. Tombol di atas untuk mengambil manual di luar jadwal.</p>
 
+      <div className="flex items-center gap-2 mb-5 flex-wrap">
+        <span className="text-xs font-medium text-slate-500">Tampilkan hotspot:</span>
+        <select
+          value={range}
+          onChange={(e) => { setRange(e.target.value); setPage(1); }}
+          className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 bg-white"
+        >
+          {RANGE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </select>
+        {range === "custom" && (
+          <>
+            <input type="date" value={customFrom} max={customTo || undefined}
+              onChange={(e) => { setCustomFrom(e.target.value); setPage(1); }}
+              className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700" />
+            <span className="text-xs text-slate-400">s/d</span>
+            <input type="date" value={customTo} min={customFrom || undefined}
+              onChange={(e) => { setCustomTo(e.target.value); setPage(1); }}
+              className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700" />
+          </>
+        )}
+        {switching && <Loader2 size={14} className="animate-spin text-slate-400" />}
+      </div>
+
       <TopTabs tab={tab} setTab={setTab} />
 
       {hotspots.length === 0 && (
         <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-sm text-slate-400">
-          Belum ada data hotspot untuk konsesi ini. Klik "Ambil Data Terbaru" atau tunggu jadwal otomatis 24 jam berikutnya.
+          {range === "all"
+            ? 'Belum ada data hotspot untuk konsesi ini. Klik "Ambil Data Terbaru" atau tunggu jadwal otomatis 24 jam berikutnya.'
+            : "Tidak ada data hotspot pada rentang waktu yang dipilih. Coba ubah rentang waktu di atas, atau ambil data terbaru."}
         </div>
       )}
 
