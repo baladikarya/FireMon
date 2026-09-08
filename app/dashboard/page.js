@@ -22,12 +22,33 @@ export default function DashboardHome() {
     setError("");
     setFile(f);
     if (!f) return;
+    if (f.size > 4 * 1024 * 1024) {
+      setError(`Ukuran file (${(f.size / 1024 / 1024).toFixed(1)} MB) melebihi batas maksimal 4 MB.`);
+      setFile(null);
+      return;
+    }
     setUploading(true);
     try {
       const form = new FormData();
       form.append("file", f);
       const res = await fetch("/api/concessions", { method: "POST", body: form });
-      const data = await res.json();
+
+      // Baca sebagai teks dulu, baru coba parse JSON. Kalau server/platform
+      // mengembalikan body kosong atau non-JSON (mis. error 413 dari batas
+      // ukuran request Vercel), ini menghindari crash
+      // "Unexpected end of JSON input" dan menampilkan pesan yang jelas.
+      const raw = await res.text();
+      let data = {};
+      try {
+        data = raw ? JSON.parse(raw) : {};
+      } catch {
+        throw new Error(
+          res.status === 413
+            ? "File terlalu besar untuk diunggah (maksimal 4 MB)."
+            : "Server tidak memberikan respons yang valid. Coba lagi beberapa saat."
+        );
+      }
+
       if (!res.ok) throw new Error(data.error || "Gagal mengunggah KML.");
       router.push(`/dashboard/concessions/${data.concession.id}`);
     } catch (err) {
@@ -61,7 +82,7 @@ export default function DashboardHome() {
           <div className="text-sm font-medium text-slate-700">
             {uploading ? "Memproses file..." : "Upload File KML Areal Konsesi"}
           </div>
-          <div className="text-xs text-slate-400 mt-1">File yang didukung: .kml (maks. 10 MB)</div>
+          <div className="text-xs text-slate-400 mt-1">File yang didukung: .kml (maks. 4 MB)</div>
           <button
             type="button"
             disabled={uploading}
